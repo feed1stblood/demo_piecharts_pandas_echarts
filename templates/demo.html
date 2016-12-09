@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Demo</title>
+</head>
+<body>
+    <script src="static/jquery.min.js"></script>
+    <script src="static/echarts.min.js"></script>
+    <div class="canvas">
+        <table style="width: 100%; height: 775px">
+            <tbody class="chart">
+                <tr class="chart">
+                    <td class="chart" style="width: 30%;"><ul class="chart sum_list"></ul></td>
+                    <td class="overall chart" style="width: 40%;"></td>
+                    <td class="chart" style="width: 30%;"><ul class="chart sum_list"></ul></td>
+                </tr>
+            </tbody>
+        </table>
+        <table align="center">
+            <tbody>
+                <tr>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="Flight">Flight</label></td>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="RoundFlight">Round Flight</label></td>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="Bus">Bus</label></td>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="Rail">Rail</label></td>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="Hotel">Hotel</label></td>
+                    <td><label style="font-size: 20px"><input class="display_switch" checked="checked" type="checkbox" value="Car">Car</label></td>
+                    <td><button id="inverse_display_switch">Inverse</button></td>
+                </tr>
+            </tbody>
+        </table>
+        <ul class="detail_list" style="width: 100%; height: 1000px"></ul>
+    </div>
+
+    <script>
+        colors = ['LIGHTBLUE',
+                  'RED', 'CORAL', 'PLUM', 'DARKGOLDENROD',
+                  'LIGHTCORAL', 'DARKORANGE', 'VIOLET', 'PERU',
+                  'SALMON', 'ORANGE', 'FUCHSIA', 'SADDLEBROWN',
+                  'CRIMSON', 'DARKORANGE', 'MAGENTA', 'SIENNA', 'INDIANRED',
+                  ]
+
+        // generating options for echart
+        function generate_option(columns, data, color_dict, error_dict, show_legend, show_title=true){
+            total = data.data.pop()
+            var option = {
+                animation: false,
+                title : {
+                    text: data.src,
+                    x:'center',
+                    y: 'top',
+                    show: show_title,
+                },
+                tooltip : {
+                    trigger: 'item',
+                    // show occurrences and description of error codes
+                    formatter: p => `${p.name}-${error_dict[p.name]}: ${p.value} (${p.percent}%)`,
+                },
+                legend: {
+                    show: show_legend,
+                    y: 0 + (show_legend) * 50,
+                    data: columns,
+                    // show description of error codes
+                    formatter: n => `${n}-${error_dict[n]}`,
+                },
+                series : [
+                    {
+                        name: data.src,
+                        type: 'pie',
+                        radius : '70%',
+                        center: ['50%', `${48}%`],
+                        data: data.data.map((e, i) => ({value: e,
+                                                name: columns[i],
+                                                label:{
+                                                    normal: {
+                                                        // show labels for errors which occurs more than 10%
+                                                        show: e / total > 0.1,
+                                                    }
+                                                },
+                                                labelLine:{
+                                                    normal: {
+                                                        show: false,
+                                                    }
+                                                },
+                                                itemStyle: {
+                                                    normal: {
+                                                        color: color_dict[columns[i]],
+                                                    }
+                                                }
+                                               })),
+                        itemStyle: {
+                            emphasis: {
+                                shadowBlur: 10,
+                                shadowOffsetX: 0,
+                                shadowColor: 'rgba(0, 0, 0, 0.5)'
+                            }
+                        },
+                        label: {
+                            normal: {
+                                position: 'inside',
+                                // {b} -> error code (columns), {d} -> percentage
+                                // see official documentation for more pre-defined placeholder
+                                formatter: '{b}: {d}%',
+                            }
+                        }
+                    }
+                ]
+            };
+            return option;
+        }
+        $(document).ready( function(){
+                $.ajax({
+                    url: 'chart',
+                    type: 'get',
+                }).success(function(data, status){
+                    console.log(data);
+
+                    // remove the redundant 'type' column
+                    data.columns.pop();
+
+                    // build a map to so that errors cdoe are shown in consistent color among all graphs
+                    err_to_color_map = data.columns.reduce((cur, val, idx) => {
+                                                            cur[val] = colors[idx];
+                                                            return cur;
+                                                           }, {});
+
+                    // the biggest overall chart in the center
+                    var box = document.createElement("div");
+                    $(box).attr('style', "height: inherit");
+                    $(".overall")[0].appendChild(box);
+                    var chart = echarts.init(box);
+                    option = generate_option(data.columns, data.sum_overall, err_to_color_map,
+                                             data.error_desc_dict, true);
+                    console.log(option);
+                    chart.setOption(option);
+
+                    // the subtotal charts around the overall
+                    sum_by_type_list = $(".sum_list")
+                    charts_list = data.sum_by_type.map((k, i) => {
+                        // create li dynamically since the count of subtotals may varies
+                        var box = document.createElement("li");
+                        $(box).attr('style', "height: 33%;");
+                        sum_by_type_list[i % 2].appendChild(box);
+                        var chart = echarts.init(box);
+                        option = generate_option(data.columns, k, err_to_color_map,
+                                                 data.error_desc_dict, false);
+                        chart.setOption(option);
+                        return chart;
+                    });
+
+                    // the charts for individuals
+                    detail_list = $(".detail_list")[0];
+                    charts_list.concat(data.detail.map((k, i) => {
+                        // create li dynamically since the count of individuals may varies
+                        var container = document.createElement("li");
+                        $(container).attr('class', k.type);
+                        $(container).attr('style', "float: left;");
+                        $(container).html(`<legend style="margin:0 auto">${k.src}</legend><div></div>`);
+                        box = $(container).find('div')[0];
+                        $(box).attr('style', "width: 200px; height: 200px;");
+                        detail_list.appendChild(container);
+                        var chart = echarts.init(box);
+                        option = generate_option(data.columns, k, err_to_color_map,
+                                                 data.error_desc_dict, false, false);
+                        chart.setOption(option);
+                        return chart;
+                    }));
+
+                    // handle the event show that clicking legend can switch the display of error code on and off among
+                    // all charts
+                    chart.on('legendselectchanged', (params) => {
+                        console.log(params);
+                        charts_list.forEach(chart => {
+                            chart.dispatchAction({
+                                    type: 'legendToggleSelect',
+                                    name: params.name.split("-")[0],
+                                }
+                            );
+                        });
+                    });
+                });
+
+                // switch display by type
+                $(".display_switch").change((e) =>
+                    $("." + $(e.target).attr("value")).attr("style", "display: " + ($(e.target).is(":checked")? "inline-block": "None"))
+                );
+                $("#inverse_display_switch").click(() =>
+                    $('.display_switch').trigger('click')
+                );
+            }
+        );
+    </script>
+    <style>
+        .chart {
+            height: inherit;
+        }
+    </style>
+</body>
